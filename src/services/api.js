@@ -57,12 +57,34 @@ export const fetchPriceHistory = async () => {
 
 export const submitData = async (payload) => {
   try {
+    // 1. Get or prompt for token
+    let token = localStorage.getItem("app_secret_token");
+    if (!token) {
+        token = window.prompt("🔒 ระบบความปลอดภัย:\nกรุณาใส่รหัสผ่าน (Secret Token) เพื่ออนุญาตการแก้ไขข้อมูล:");
+        if (!token) {
+            alert("ยกเลิกการบันทึกข้อมูล (ไม่ใส่รหัสผ่าน)");
+            return { status: 'error', message: 'No token provided' };
+        }
+        localStorage.setItem("app_secret_token", token);
+    }
+    
+    // 2. Attach token to payload
+    payload.token = token;
+
     const res = await fetch(WEB_APP_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify(payload)
     });
-    return await res.json();
+    const result = await res.json();
+    
+    // 3. Handle invalid token from server
+    if (result.status === "error" && result.message === "Invalid Token") {
+        localStorage.removeItem("app_secret_token"); // Clear wrong token
+        alert("❌ รหัสผ่านไม่ถูกต้อง! กรุณาทำรายการใหม่");
+    }
+    
+    return result;
   } catch (error) {
     console.error("Error submitting data:", error);
     throw error;

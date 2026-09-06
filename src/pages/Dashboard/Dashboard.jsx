@@ -171,6 +171,7 @@ const Dashboard = () => {
       {
         label: 'กำไร/ขาดทุนรายเดือน',
         data: chartPerformance.map(item => item.plTHB) || [],
+        pctData: chartPerformance.map(item => item.plPct) || [],
         backgroundColor: chartPerformance.map(item => item.plTHB >= 0 ? 'rgba(16, 185, 129, 0.85)' : 'rgba(244, 63, 94, 0.85)') || [],
         hoverBackgroundColor: chartPerformance.map(item => item.plTHB >= 0 ? '#10b981' : '#f43f5e') || [],
         borderRadius: 4,
@@ -179,6 +180,7 @@ const Dashboard = () => {
       {
         label: 'กำไร/ขาดทุนสะสม',
         data: chartPerformance.map(item => item.cumulativePL) || [],
+        pctData: chartPerformance.map(item => item.cumulativePct) || [],
         backgroundColor: chartPerformance.map(item => item.cumulativePL >= 0 ? 'rgba(16, 185, 129, 0.85)' : 'rgba(244, 63, 94, 0.85)') || [],
         hoverBackgroundColor: chartPerformance.map(item => item.cumulativePL >= 0 ? '#10b981' : '#f43f5e') || [],
         borderRadius: 4,
@@ -718,7 +720,7 @@ const Dashboard = () => {
       <section className="bg-white rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-slate-200 overflow-hidden">
         <div className="p-6 border-b border-slate-50 flex justify-between items-center bg-slate-50/50">
           <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-            <i className="fa-regular fa-calendar-days text-emerald-400"></i> สรุปผลตอบแทนรายเดือน
+            <i className="fa-regular fa-calendar-days text-emerald-400"></i> สรุปผลตอบแทน{monthlyView === 'monthly' ? 'รายเดือน' : 'สะสม'}
           </h3>
           <div className="flex gap-1 bg-slate-100 p-1 rounded-xl border border-slate-200">
             <button
@@ -756,9 +758,7 @@ const Dashboard = () => {
                       if (meta.type !== 'bar') return;
                       
                       meta.data.forEach((element, index) => {
-                        const pct = monthlyView === 'monthly' ? 
-                          (chartPerformance[index]?.plPct || 0) : 
-                          (chartPerformance[index]?.cumulativePct || 0);
+                        const pct = dataset.pctData ? (dataset.pctData[index] || 0) : 0;
                         
                         if (Math.abs(pct) < 0.01 && pct !== 0) return; // Skip very small numbers visually
                         
