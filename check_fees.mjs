@@ -1,0 +1,1 @@
+fetch("https://script.google.com/macros/s/AKfycbwnXVzDqzDLUhD6CjEK5jxy0z2UfbvgFM-j8osQ9vTvp_I58aBSBKInaEVAlreFDx7azA/exec?sheetName=TradeLog").then(r=>r.json()).then(d => { let sumFees = 0; d.data.forEach(t => { if(t.portfolio==="Alpha Portfolio" && t.type==="Dividend"){ sumFees += parseFloat(t.fee)||0; } }); console.log("Sum of Dividend Fees:", sumFees); })
