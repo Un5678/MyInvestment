@@ -7,6 +7,7 @@ export const DataContext = createContext();
 export const DataProvider = ({ children }) => {
   const [selectedFilter, setSelectedFilter] = useState('สินทรัพย์ทั้งหมด (Total Wealth)');
   const [timeframe, setTimeframe] = useState('YTD');
+  const [viewMode, setViewMode] = useState('grouped');
 
   const getInitialData = () => {
     const cachedCurrency = localStorage.getItem('currencyData');
@@ -38,7 +39,7 @@ export const DataProvider = ({ children }) => {
   // Initialize stats synchronously if we have cached data
   const [dashboardStats, setDashboardStats] = useState(() => {
       if (initialData.tradeData.length > 0) {
-          return processDashboardData(initialData.tradeData, initialData.marketMap, initialData.priceHistory, initialData.globalExchangeRate, 'สินทรัพย์ทั้งหมด (Total Wealth)', 'YTD');
+          return processDashboardData(initialData.tradeData, initialData.marketMap, initialData.priceHistory, initialData.globalExchangeRate, 'สินทรัพย์ทั้งหมด (Total Wealth)', 'YTD', 'grouped');
       }
       return null;
   });
@@ -115,10 +116,11 @@ export const DataProvider = ({ children }) => {
          data.priceHistory,
          data.globalExchangeRate,
          selectedFilter,
-         timeframe
+         timeframe,
+         viewMode
        ));
     }
-  }, [data, selectedFilter, timeframe]);
+  }, [data, selectedFilter, timeframe, viewMode]);
 
   const refreshData = async () => {
     await loadAllData();
@@ -130,6 +132,7 @@ export const DataProvider = ({ children }) => {
       data,
       selectedFilter, setSelectedFilter,
       timeframe, setTimeframe,
+      viewMode, setViewMode,
       dashboardStats,
       tradeStats,
       currencyStats,

@@ -11,7 +11,7 @@ const Header = ({ activeTab, setActiveTab }) => {
           My Investment
         </div>
         
-        <nav className="flex bg-white p-1.5 rounded-2xl shadow-sm border border-slate-100 gap-1">
+        <nav className="flex overflow-x-auto w-full md:w-auto bg-white p-1.5 rounded-2xl shadow-sm border border-slate-100 gap-1 scrollbar-hide">
           <button 
             onClick={() => setActiveTab('dashboard')} 
             className={activeTab === 'dashboard' ? activeClass : inactiveClass}

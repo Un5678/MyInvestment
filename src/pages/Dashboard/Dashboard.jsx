@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useData } from '../../context/DataContext';
 import { Chart as ChartJS, ArcElement, Tooltip, Legend, CategoryScale, LinearScale, PointElement, LineElement, Title, Filler, BarElement } from 'chart.js';
 import { Pie, Line, Bar } from 'react-chartjs-2';
+import RebalanceSimulator from '../../components/RebalanceSimulator';
 
 ChartJS.register(ArcElement, Tooltip, Legend, CategoryScale, LinearScale, PointElement, LineElement, Title, Filler, BarElement);
 
@@ -60,10 +61,37 @@ const CustomDropdown = ({ value, onChange, options }) => {
 
 
 const Dashboard = () => {
-  const { loading, data, dashboardStats, selectedFilter, setSelectedFilter, timeframe, setTimeframe } = useData();
+  const { loading, data, dashboardStats, selectedFilter, setSelectedFilter, timeframe, setTimeframe, viewMode, setViewMode } = useData();
   const [targets, setTargets] = useState({});
+
+
+  const getScalingFactor = (asset) => {
+      let isSubPort = ['Core Portfolio', 'Satellite Portfolio', 'Alpha Portfolio', 'Defensive Portfolio', 'Dividend Portfolio'].includes(selectedFilter);
+      let effectiveViewMode = isSubPort ? 'individual' : viewMode;
+
+      if (effectiveViewMode === 'grouped' || asset.isCash) return 1;
+
+      let isStockSubPort = asset.parentPort && ['Core Portfolio', 'Satellite Portfolio', 'Alpha Portfolio', 'Defensive Portfolio', 'Dividend Portfolio'].includes(asset.parentPort);
+      let topLevelClass = isStockSubPort ? 'หุ้น (Stocks)' : asset.parentPort;
+
+      let classTgt = parseFloat(targets[topLevelClass]) || 100;
+      
+      if (selectedFilter === 'สินทรัพย์ทั้งหมด (Total Wealth)') {
+          // Rule 4: Total Wealth (Individual) = Target_Individual * (Target_AssetClass / 100)
+          return classTgt / 100;
+      } else if (selectedFilter === topLevelClass) {
+          // Rule 3: Stocks (Individual) is the base level for raw inputs, so factor is 1
+          return 1;
+      } else {
+          // Rule 5, 6: Sub-portfolio view (e.g. Core Portfolio)
+          // Scale by the sub-portfolio's explicitly set target
+          let parentTgt = parseFloat(targets[asset.parentPort]) || 100;
+          return parentTgt > 0 ? 100 / parentTgt : 1;
+      }
+  };
   const [sortConfig, setSortConfig] = useState({ key: 'value', direction: 'desc' });
   const [monthlyView, setMonthlyView] = useState('monthly'); // 'monthly' | 'cumulative'
+  const [isSimulatorOpen, setIsSimulatorOpen] = useState(false);
   const hasScrolledRef = useRef(false);
 
   useEffect(() => {
@@ -74,21 +102,27 @@ const Dashboard = () => {
   }, [loading, dashboardStats]);
 
   useEffect(() => {
-    if (dashboardStats?.assetList) {
+    if (dashboardStats) {
         const loadedTargets = {};
-        dashboardStats.assetList.forEach(asset => {
-            const saved = localStorage.getItem('target_' + asset.name);
-            if (saved !== null) {
-                loadedTargets[asset.name] = saved;
+        for (let i = 0; i < localStorage.length; i++) {
+            let key = localStorage.key(i);
+            if (key && key.startsWith('target_')) {
+                loadedTargets[key.replace('target_', '')] = localStorage.getItem(key);
             }
-        });
+        }
         setTargets(loadedTargets);
     }
-  }, [dashboardStats?.assetList]);
+  }, [dashboardStats]);
 
-  const handleTargetChange = (assetName, value) => {
-      localStorage.setItem('target_' + assetName, value);
-      setTargets(prev => ({...prev, [assetName]: value}));
+  const handleTargetChange = (asset, value) => {
+      let valToSave = value;
+      if (value !== '') {
+          const factor = getScalingFactor(asset);
+          valToSave = (parseFloat(value) / factor).toFixed(2);
+          if (valToSave.endsWith('.00')) valToSave = parseFloat(valToSave).toString();
+      }
+      localStorage.setItem('target_' + asset.name, valToSave);
+      setTargets(prev => ({...prev, [asset.name]: valToSave}));
   };
 
   const rawAssetList = dashboardStats?.assetList;
@@ -140,12 +174,21 @@ const Dashboard = () => {
 
   const { cards, chart, pie, monthlyPerformance } = dashboardStats;
 
+  const baseColors = [
+    '#10B981', '#3B82F6', '#F59E0B', '#EF4444', '#8B5CF6', '#14B8A6', '#EC4899', '#6366F1',
+    '#84CC16', '#0EA5E9', '#F43F5E', '#D946EF', '#06B6D4', '#EAB308', '#F97316', '#2DD4BF',
+    '#818CF8', '#64748B', '#A855F7', '#1D4ED8', '#B91C1C', '#047857', '#C2410C', '#4338CA'
+  ];
+  let chartColors = pie.data.map((_, i) => baseColors[i % baseColors.length]).reverse();
+  let chartLabels = [...pie.labels].reverse();
+  let chartData = [...pie.data].reverse();
+
   const formatThb = (val) => val.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const formatUsd = (val) => val.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
   const portfolioOptions = [
     { value: 'สินทรัพย์ทั้งหมด (Total Wealth)', label: 'ภาพรวมสินทรัพย์ทั้งหมด', icon: 'fa-solid fa-globe' },
-    { value: 'หุ้น (Stocks)', label: 'กลุ่มหุ้น (Stocks)', icon: 'fa-solid fa-chart-simple' },
+    { value: 'หุ้น (Stocks)', label: 'หุ้น (Stocks)', icon: 'fa-solid fa-chart-simple' },
     { value: 'Core Portfolio', label: 'Core Portfolio', icon: 'fa-solid fa-bullseye' },
     { value: 'Satellite Portfolio', label: 'Satellite Portfolio', icon: 'fa-solid fa-rocket' },
     { value: 'Alpha Portfolio', label: 'Alpha Portfolio', icon: 'fa-solid fa-bolt' },
@@ -328,10 +371,10 @@ const Dashboard = () => {
             {pie.data.length > 0 ? (
               <Pie 
                 data={{
-                  labels: pie.labels,
+                  labels: chartLabels,
                   datasets: [{
-                    data: pie.data,
-                    backgroundColor: ['#10B981', '#3B82F6', '#F59E0B', '#EF4444', '#8B5CF6', '#14B8A6', '#EC4899', '#6366F1'],
+                    data: chartData,
+                    backgroundColor: chartColors,
                     borderWidth: 2,
                     borderColor: '#ffffff',
                     hoverOffset: 8
@@ -341,7 +384,7 @@ const Dashboard = () => {
                   responsive: true,
                   maintainAspectRatio: false,
                   plugins: {
-                    legend: { position: 'bottom', labels: { padding: 20, usePointStyle: true, font: { family: "'Prompt', sans-serif", size: 13, weight: 'bold' } } },
+                    legend: { reverse: true, position: 'bottom', labels: { padding: 20, usePointStyle: true, font: { family: "'Prompt', sans-serif", size: 13, weight: 'bold' } } },
                     tooltip: { 
                       backgroundColor: 'rgba(255, 255, 255, 0.95)', 
                       bodyColor: '#1e293b', 
@@ -374,15 +417,46 @@ const Dashboard = () => {
 
         {/* Asset List Table */}
         <div className="bg-white rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-slate-200 overflow-hidden lg:col-span-2 flex flex-col h-full">
-          <div className="p-6 border-b border-slate-50 flex justify-between items-center bg-slate-50/50">
-            <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-              <i className="fa-solid fa-list-ul text-emerald-400"></i> รายการสินทรัพย์ที่ถือครอง
-            </h3>
+          <div className="p-6 border-b border-slate-50 flex justify-between items-center bg-slate-50/50 flex-wrap gap-4">
+            <div className="flex items-center gap-4">
+              <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                <i className="fa-solid fa-list-ul text-emerald-400"></i> รายการสินทรัพย์ที่ถือครอง
+              </h3>
+              {(selectedFilter === 'สินทรัพย์ทั้งหมด (Total Wealth)' || selectedFilter === 'หุ้น (Stocks)') && (
+                  <div className="flex bg-white rounded-lg p-1 border border-slate-200 shadow-sm">
+                      <button 
+                          onClick={() => setViewMode('grouped')}
+                          className={`px-3 py-1.5 text-xs font-bold rounded-md transition-colors ${viewMode === 'grouped' ? 'bg-emerald-100 text-emerald-700' : 'text-slate-500 hover:bg-slate-50'}`}
+                      >
+                          จัดกลุ่ม
+                      </button>
+                      <button 
+                          onClick={() => setViewMode('individual')}
+                          className={`px-3 py-1.5 text-xs font-bold rounded-md transition-colors ${viewMode === 'individual' ? 'bg-emerald-100 text-emerald-700' : 'text-slate-500 hover:bg-slate-50'}`}
+                      >
+                          รายตัว
+                      </button>
+                  </div>
+              )}
+            </div>
+            <button 
+              onClick={() => setIsSimulatorOpen(true)}
+              className="px-4 py-2 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 font-bold text-sm rounded-xl transition-colors flex items-center gap-2"
+            >
+              <i className="fa-solid fa-calculator"></i> จำลองปรับพอร์ต
+            </button>
           </div>
+          
+          <RebalanceSimulator 
+            isOpen={isSimulatorOpen} 
+            onClose={() => setIsSimulatorOpen(false)} 
+            data={data}
+            dashboardStats={dashboardStats} 
+          />
           <div className="overflow-x-auto flex-1 px-6 pb-6 mt-4">
             <table className="w-full text-left border-collapse text-sm whitespace-nowrap">
               <thead className="sticky top-0 bg-emerald-50/80 backdrop-blur-sm z-10">
-                <tr className="text-emerald-900 font-bold border-b border-emerald-100">
+                <tr className="text-emerald-900 font-bold border-b border-emerald-100 whitespace-nowrap">
                   <th className="p-4 uppercase tracking-wider text-sm rounded-tl-xl">สัญลักษณ์</th>
                   <th className="p-4 uppercase tracking-wider text-sm">ราคาต้นทุน</th>
                   <th className="p-4 uppercase tracking-wider text-sm">ราคาอ้างอิง</th>
@@ -410,7 +484,20 @@ const Dashboard = () => {
                     
                     let isCash = asset.isCash;
                     
-                    let targetVal = targets[asset.name] || '';
+                    let scalingFactor = getScalingFactor(asset);
+                    let rawTargetVal = targets[asset.name];
+                    
+                    if (!rawTargetVal && asset.parentPort && dashboardStats.holdings[asset.parentPort]) {
+                        let siblings = Object.keys(dashboardStats.holdings[asset.parentPort]);
+                        if (siblings.length === 1) {
+                            rawTargetVal = '100';
+                        }
+                    }
+                    rawTargetVal = rawTargetVal || '';
+                    
+                    let targetVal = rawTargetVal ? (parseFloat(rawTargetVal) * scalingFactor).toFixed(2) : '';
+                    if (targetVal.endsWith('.00')) targetVal = parseFloat(targetVal).toString();
+
                     let diff = 0;
                     let diffStatus = '';
                     let diffClass = '';
@@ -441,8 +528,8 @@ const Dashboard = () => {
                     }
 
                     return (
-                      <tr key={idx} className="hover:bg-slate-50/50 transition-colors group">
-                        <td className="p-4 font-extrabold text-slate-800">{asset.name}</td>
+                      <tr key={idx} className="hover:bg-slate-50/50 transition-colors group whitespace-nowrap">
+                        <td className="p-4 font-extrabold text-slate-800">{asset.name.replace(' Portfolio', '')}</td>
                         <td className="p-4 text-slate-500 font-medium">
                           {isCash ? '-' : (asset.avgCost ? (asset.baseCurrency === 'THB' ? '฿' : '$') + asset.avgCost.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4 }) : '-')}
                         </td>
@@ -483,9 +570,9 @@ const Dashboard = () => {
                               <input 
                                   type="number" 
                                   value={targetVal}
-                                  onChange={(e) => handleTargetChange(asset.name, e.target.value)}
+                                  onChange={(e) => handleTargetChange(asset, e.target.value)}
                                   placeholder="0" 
-                                  className="w-14 bg-white border border-slate-200 rounded-lg py-1 px-2 text-sm text-center focus:ring-2 focus:ring-emerald-300 outline-none text-slate-700 font-bold mb-1 shadow-sm mx-auto block"
+                                  className="w-20 bg-white border border-slate-200 rounded-lg py-1 px-2 text-sm text-center focus:ring-2 focus:ring-emerald-300 outline-none text-slate-700 font-bold mb-1 shadow-sm mx-auto block"
                               />
                               {targetVal && (
                                   <div className={`text-[10px] font-bold ${diffClass}`}>
@@ -788,7 +875,7 @@ const Dashboard = () => {
         <div className="overflow-x-auto px-6 pb-6 mt-4">
           <table className="w-full text-left border-collapse text-sm whitespace-nowrap">
             <thead className="bg-emerald-50/80 backdrop-blur-sm z-10">
-              <tr className="text-emerald-900 font-bold border-b border-emerald-100">
+              <tr className="text-emerald-900 font-bold border-b border-emerald-100 whitespace-nowrap">
                 <th className="p-4 uppercase tracking-wider text-sm rounded-tl-xl">เดือน</th>
                 <th className="p-4 uppercase tracking-wider text-sm text-right">เงินลงทุน</th>
                 <th className="p-4 uppercase tracking-wider text-sm text-right">มูลค่าพอร์ต</th>
@@ -805,7 +892,7 @@ const Dashboard = () => {
                   let monthName = dateObj.toLocaleDateString('th-TH', { month: 'short', year: 'numeric' });
                   
                   return (
-                    <tr key={idx} className="hover:bg-slate-50/50 transition-colors group">
+                    <tr key={idx} className="hover:bg-slate-50/50 transition-colors group whitespace-nowrap">
                       <td className="p-4 text-slate-600 font-bold">{monthName}</td>
                       <td className="p-4 text-right font-medium text-slate-600">฿{formatThb(item.investedTHB)}</td>
                       <td className="p-4 text-right font-medium text-slate-600">฿{formatThb(item.marketTHB)}</td>

@@ -128,7 +128,7 @@ const getInterpolatedPrice = (sym, targetDate, assetPricePoints) => {
 };
 
 // 3. คำนวณ Dashboard ข้อมูลทั้งหมด (Donut Chart, Line Chart, Cards, Asset List)
-export const processDashboardData = (globalTradeData, globalMarketData, globalPriceHistory, globalExchangeRate, selectedFilter, timeframe) => {
+export const processDashboardData = (globalTradeData, globalMarketData, globalPriceHistory, globalExchangeRate, selectedFilter, timeframe, viewMode = 'grouped') => {
     let holdings = {};
     let realizedPL = 0;
     let totalCostBasis = 0;
@@ -299,54 +299,102 @@ export const processDashboardData = (globalTradeData, globalMarketData, globalPr
     };
 
     if (selectedFilter === 'สินทรัพย์ทั้งหมด (Total Wealth)') {
-        breakdown = { "หุ้น (Stocks)": 0, "ทองคำ (Gold)": 0, "คริปโต (Crypto)": 0, "กองทุน (Funds)": 0, "เงินสด (Cash)": 0 };
-        let groupCostBasis = { "หุ้น (Stocks)": 0, "ทองคำ (Gold)": 0, "คริปโต (Crypto)": 0, "กองทุน (Funds)": 0, "เงินสด (Cash)": 0 };
-        
-        for (let port in holdings) {
-            for (let sym in holdings[port]) {
-                let res = processAsset(port, sym, holdings[port][sym]);
-                if (!res) continue;
-                
-                let groupName = port;
-                if (['Core Portfolio', 'Satellite Portfolio', 'Alpha Portfolio', 'Defensive Portfolio', 'Dividend Portfolio'].includes(port)) groupName = "หุ้น (Stocks)";
-                else if (port === 'ทองคำ (Gold)') groupName = "ทองคำ (Gold)";
-                else if (port === 'คริปโต (Crypto)') groupName = "คริปโต (Crypto)";
-                else if (port === 'กองทุน (Funds)') groupName = "กองทุน (Funds)";
-                else if (port === 'เงินสด (Cash)') groupName = "เงินสด (Cash)";
-                
-                breakdown[groupName] = (breakdown[groupName] || 0) + res.marketValueUSD;
-                groupCostBasis[groupName] = (groupCostBasis[groupName] || 0) + res.costBasisUSD;
+        if (viewMode === 'grouped') {
+            breakdown = { "หุ้น (Stocks)": 0, "ทองคำ (Gold)": 0, "คริปโต (Crypto)": 0, "กองทุน (Funds)": 0, "เงินสด (Cash)": 0 };
+            let groupCostBasis = { "หุ้น (Stocks)": 0, "ทองคำ (Gold)": 0, "คริปโต (Crypto)": 0, "กองทุน (Funds)": 0, "เงินสด (Cash)": 0 };
+            
+            for (let port in holdings) {
+                for (let sym in holdings[port]) {
+                    let res = processAsset(port, sym, holdings[port][sym]);
+                    if (!res) continue;
+                    
+                    let groupName = port;
+                    if (['Core Portfolio', 'Satellite Portfolio', 'Alpha Portfolio', 'Defensive Portfolio', 'Dividend Portfolio'].includes(port)) groupName = "หุ้น (Stocks)";
+                    else if (port === 'ทองคำ (Gold)') groupName = "ทองคำ (Gold)";
+                    else if (port === 'คริปโต (Crypto)') groupName = "คริปโต (Crypto)";
+                    else if (port === 'กองทุน (Funds)') groupName = "กองทุน (Funds)";
+                    else if (port === 'เงินสด (Cash)') groupName = "เงินสด (Cash)";
+                    
+                    breakdown[groupName] = (breakdown[groupName] || 0) + res.marketValueUSD;
+                    groupCostBasis[groupName] = (groupCostBasis[groupName] || 0) + res.costBasisUSD;
+                }
             }
-        }
-        for(let key in breakdown) {
-            if(breakdown[key] > 0) {
+            for(let key in breakdown) {
                 assetList.push({ 
-                    name: key, avgCost: null, costBasisUSD: groupCostBasis[key],
-                    value: breakdown[key], baseCurrency: (key.includes('คริปโต') || key.includes('กองทุน') || key.includes('เงินสด')) ? 'THB' : 'MIX',
+                    name: key, avgCost: null, costBasisUSD: groupCostBasis[key] || 0,
+                    value: breakdown[key] || 0, baseCurrency: (key.includes('คริปโต') || key.includes('กองทุน') || key.includes('เงินสด')) ? 'THB' : 'MIX',
                     isCash: key.includes('เงินสด') || key.includes('Cash')
+                });
+            }
+        } else {
+            // viewMode === 'individual'
+            let cashResMerged = { vol: 0, costBasisUSD: 0, marketValueUSD: 0 };
+            for (let port in holdings) {
+                for (let sym in holdings[port]) {
+                    let res = processAsset(port, sym, holdings[port][sym]);
+                    if (!res) continue;
+                    
+                    if (res.isCash) {
+                        cashResMerged.costBasisUSD += res.costBasisUSD;
+                        cashResMerged.marketValueUSD += res.marketValueUSD;
+                    } else {
+                        breakdown[sym] = (breakdown[sym] || 0) + res.marketValueUSD;
+                        let displayAvgCost = res.baseCurrency === 'THB' ? res.avgCost * globalExchangeRate : res.avgCost;
+                        assetList.push({ 
+                            name: sym, volume: res.vol, avgCost: displayAvgCost, 
+                            costBasisUSD: res.costBasisUSD, value: res.marketValueUSD, baseCurrency: res.baseCurrency,
+                            isCash: false, parentPort: port
+                        });
+                    }
+                }
+            }
+            if (cashResMerged.marketValueUSD > 0 || cashResMerged.costBasisUSD > 0) {
+                breakdown['เงินสด (Cash)'] = cashResMerged.marketValueUSD;
+                assetList.push({ 
+                    name: 'เงินสด (Cash)', avgCost: null, costBasisUSD: cashResMerged.costBasisUSD,
+                    value: cashResMerged.marketValueUSD, baseCurrency: 'THB', isCash: true, parentPort: 'เงินสด (Cash)'
                 });
             }
         }
     } else if (selectedFilter === 'หุ้น (Stocks)') {
-        let groupCostBasis = {};
-        for (let port of ['Core Portfolio', 'Satellite Portfolio', 'Alpha Portfolio', 'Defensive Portfolio', 'Dividend Portfolio']) {
-            if (holdings[port]) {
+        if (viewMode === 'grouped') {
+            let groupCostBasis = {};
+            let subPorts = ['Core Portfolio', 'Satellite Portfolio', 'Alpha Portfolio', 'Defensive Portfolio', 'Dividend Portfolio'];
+            for (let port of subPorts) {
                 breakdown[port] = 0;
                 groupCostBasis[port] = 0;
-                for (let sym in holdings[port]) {
-                    let res = processAsset(port, sym, holdings[port][sym]);
-                    if (!res) continue;
-                    breakdown[port] += res.marketValueUSD;
-                    groupCostBasis[port] += res.costBasisUSD;
+                if (holdings[port]) {
+                    for (let sym in holdings[port]) {
+                        let res = processAsset(port, sym, holdings[port][sym]);
+                        if (!res) continue;
+                        breakdown[port] += res.marketValueUSD;
+                        groupCostBasis[port] += res.costBasisUSD;
+                    }
                 }
             }
-        }
-        for(let key in breakdown) {
-            if(breakdown[key] > 0) {
+            for(let key of subPorts) {
                 assetList.push({ 
-                    name: key, avgCost: null, costBasisUSD: groupCostBasis[key], value: breakdown[key], baseCurrency: 'USD',
+                    name: key, avgCost: null, costBasisUSD: groupCostBasis[key] || 0, value: breakdown[key] || 0, baseCurrency: 'USD',
                     isCash: false
                 });
+            }
+        } else {
+            // viewMode === 'individual'
+            let subPorts = ['Core Portfolio', 'Satellite Portfolio', 'Alpha Portfolio', 'Defensive Portfolio', 'Dividend Portfolio'];
+            for (let port of subPorts) {
+                if (holdings[port]) {
+                    for (let sym in holdings[port]) {
+                        let res = processAsset(port, sym, holdings[port][sym]);
+                        if (!res) continue;
+                        breakdown[sym] = (breakdown[sym] || 0) + res.marketValueUSD;
+                        let displayAvgCost = res.baseCurrency === 'THB' ? res.avgCost * globalExchangeRate : res.avgCost;
+                        assetList.push({ 
+                            name: sym, volume: res.vol, avgCost: displayAvgCost, 
+                            costBasisUSD: res.costBasisUSD, value: res.marketValueUSD, baseCurrency: res.baseCurrency,
+                            isCash: false, parentPort: port
+                        });
+                    }
+                }
             }
         }
     } else {
@@ -360,7 +408,7 @@ export const processDashboardData = (globalTradeData, globalMarketData, globalPr
                 assetList.push({ 
                     name: sym, volume: res.vol, avgCost: displayAvgCost, 
                     costBasisUSD: res.costBasisUSD, value: res.marketValueUSD, baseCurrency: res.baseCurrency,
-                    isCash: res.isCash
+                    isCash: res.isCash, parentPort: selectedFilter
                 });
             }
         }
@@ -728,16 +776,19 @@ export const processDashboardData = (globalTradeData, globalMarketData, globalPr
     }
 
     // Pie chart mapping
-    let pieLabels = [];
-    let pieData = [];
+    let pieArray = [];
     for (let key in breakdown) {
         if (breakdown[key] > 0) {
-            pieLabels.push(key);
-            pieData.push(breakdown[key]);
+            pieArray.push({ label: key, value: breakdown[key] });
         }
     }
+    pieArray.sort((a, b) => b.value - a.value);
+    
+    let pieLabels = pieArray.map(item => item.label);
+    let pieData = pieArray.map(item => item.value);
 
     return {
+        holdings,
         cards: {
             totalWealthTHB, totalWealthUSD,
             totalUnrealizedPL_USD, 
